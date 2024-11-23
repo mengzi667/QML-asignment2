@@ -1,165 +1,152 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from gurobipy import *
 import pandas as pd
+import numpy as np
+from gurobipy import Model, GRB, quicksum
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
 
-def read_data(filename):
-    # 读取数据文件
-    data = pd.read_csv(filename, delimiter='\s+', header=None)
-    x_coords = data[1].values  # x坐标
-    y_coords = data[2].values  # y坐标
-    demands = data[3].values   # 需求量
-    return x_coords, y_coords, demands
+# Load data from data_small.txt
+data = pd.read_csv('data_small.txt', delim_whitespace=True, header=None,
+                   names=["LOC_ID", "XCOORD", "YCOORD", "DEMAND", "SERVICETIME", "READYTIME", "DUETIME"])
 
-def calculate_distances(x_coords, y_coords):
-    # 计算距离矩阵
-    distances = np.sqrt((x_coords[:, None] - x_coords[None, :]) ** 2 + 
-                       (y_coords[:, None] - y_coords[None, :]) ** 2)
-    distances[np.isnan(distances)] = 0
-    distances[np.isinf(distances)] = 0
-    return distances
+# Extract relevant information
+locations = data["LOC_ID"].values
+coordinates = data[["XCOORD", "YCOORD"]].values
+demand = data["DEMAND"].values
+service_time = data["SERVICETIME"].values
+ready_time = data["READYTIME"].values
+due_time = data["DUETIME"].values
 
-def solve_vrp(x_coords, y_coords, demands, num_vehicles=2, vehicle_capacity=130):
-    n = len(x_coords)
-    distances = calculate_distances(x_coords, y_coords)
-    
-    # 创建模型
-    model = Model('VRP')
-    
-    # 决策变量
-    x = {}
-    for i in range(n):
-        for j in range(n):
-            for k in range(num_vehicles):
-                x[i,j,k] = model.addVar(vtype=GRB.BINARY, name=f'x_{i}_{j}_{k}')
-    
-    # 负载变量
-    u = {}
-    for i in range(n):
-        for k in range(num_vehicles):
-            u[i,k] = model.addVar(name=f'u_{i}_{k}')
-    
-    # 目标函数：最小化总距离
-    obj = quicksum(distances[i,j] * x[i,j,k] 
-                  for i in range(n) for j in range(n) for k in range(num_vehicles))
-    model.setObjective(obj, GRB.MINIMIZE)
-    
-    # 约束条件
-    # 1. 每个客户点只能被访问一次
-    for j in range(1, n):
-        model.addConstr(quicksum(x[i,j,k] 
-                               for i in range(n) for k in range(num_vehicles)) == 1)
-    
-    # 2. 每辆车必须从depot出发
-    for k in range(num_vehicles):
-        model.addConstr(quicksum(x[0,j,k] for j in range(1, n)) <= 1)
-    
-    # 3. 流量守恒约束
-    for k in range(num_vehicles):
-        for h in range(n):
-            model.addConstr(
-                quicksum(x[i,h,k] for i in range(n)) ==
-                quicksum(x[h,j,k] for j in range(n))
-            )
-    
-    # 4. 容量约束和子回路消除约束
-    for i in range(1, n):
-        for k in range(num_vehicles):
-            model.addConstr(u[i,k] <= vehicle_capacity)
-            model.addConstr(u[i,k] >= demands[i])
-    
-    for i in range(1, n):
-        for j in range(1, n):
-            for k in range(num_vehicles):
-                if i != j:
-                    model.addConstr(
-                        u[i,k] - u[j,k] + vehicle_capacity * x[i,j,k] <= 
-                        vehicle_capacity - demands[j]
-                    )
-    
-    # 求解
-    model.optimize()
-    
-    # 提取结果
-    routes = []
-    total_distance = model.objVal
-    
-    for k in range(num_vehicles):
-        route = [0]
-        current = 0
-        while True:
-            next_stop = None
-            for j in range(n):
-                if x[current,j,k].x > 0.5:
-                    next_stop = j
+# Number of vehicles and vehicle capacity
+num_vehicles = 2
+capacity = 130
+
+# Calculate distance matrix (Euclidean distances)
+num_locations = len(locations)
+distance_matrix = np.zeros((num_locations, num_locations))
+for i in range(num_locations):
+    for j in range(num_locations):
+        distance_matrix[i, j] = np.linalg.norm(coordinates[i] - coordinates[j])
+
+# Gurobi Model
+model = Model("CVRP-TW")
+
+# Decision variables
+x = model.addVars(num_locations, num_locations, num_vehicles, vtype=GRB.BINARY, name="x")
+y = model.addVars(num_locations, num_vehicles, vtype=GRB.BINARY, name="y")
+w = model.addVars(num_locations, num_vehicles, vtype=GRB.CONTINUOUS, name="w")
+
+# Objective function: minimize total distance
+model.setObjective(quicksum(distance_matrix[i, j] * x[i, j, v]
+                            for i in range(num_locations)
+                            for j in range(num_locations)
+                            for v in range(num_vehicles)), GRB.MINIMIZE)
+
+# Constraints
+# Each customer is visited exactly once
+model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(num_vehicles)) == 1
+                 for i in range(1, num_locations))
+
+# Flow conservation
+model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations)) ==
+                 quicksum(x[j, i, v] for j in range(num_locations))
+                 for i in range(num_locations) for v in range(num_vehicles))
+
+# Each vehicle starts and ends at the depot
+model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) == 1 for v in range(num_vehicles))
+model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) == 1 for v in range(num_vehicles))
+
+# Vehicle capacity constraint
+model.addConstrs(
+    quicksum(demand[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
+    <= capacity for v in range(num_vehicles))
+
+# Time window constraints
+model.addConstrs((w[i, v] >= ready_time[i] * y[i, v]) for i in range(num_locations) for v in range(num_vehicles))
+model.addConstrs((w[i, v] <= due_time[i] * y[i, v]) for i in range(num_locations) for v in range(num_vehicles))
+
+# Subtour elimination
+M = 1e5  # A sufficiently large number
+model.addConstrs((w[i, v] + service_time[i] + distance_matrix[i, j] - w[j, v]
+                  <= M * (1 - x[i, j, v]))
+                 for i in range(num_locations)
+                 for j in range(1, num_locations)
+                 for v in range(num_vehicles))
+
+# Solve the model
+model.optimize()
+
+# Extract results
+routes = {v: [] for v in range(num_vehicles)}
+summary_data = []
+total_distance = model.objVal
+for v in range(num_vehicles):
+    current_node = 0  # Start from the depot
+    load = 0  # Track vehicle load
+    while True:
+        for j in range(num_locations):
+            if x[current_node, j, v].x > 0.5:
+                next_node = j
+                start_time = w[current_node, v].x
+                end_time = w[next_node, v].x
+
+                # Calculate load at origin and destination
+                load_o = load
+                load += demand[next_node]
+                load_d = load
+
+                # Add record to summary data
+                summary_data.append({
+                    "Vehicle": v + 1,
+                    "Origin": current_node,
+                    "Destination": next_node,
+                    "Time O": start_time,
+                    "Time D": end_time,
+                    "Load O": load_o,
+                    "Load D": load_d,
+                })
+
+                # Add to routes and update current node
+                routes[v].append((current_node, next_node))
+                current_node = next_node
+
+                # Break if returned to depot
+                if next_node == 0:
                     break
-            if next_stop is None or next_stop == 0:
-                break
-            route.append(next_stop)
-            current = next_stop
-        if len(route) > 1:
-            route.append(0)
-            routes.append(route)
-    
-    return routes, total_distance
+        if current_node == 0:
+            break
 
-def plot_solution(x_coords, y_coords, routes):
-    plt.figure(figsize=(10, 10))
-    # 绘制所有点
-    plt.scatter(x_coords[1:], y_coords[1:], c='blue', label='Customers')
-    plt.scatter(x_coords[0], y_coords[0], c='red', marker='s', label='Depot')
-    
-    # 为每条路线使用不同的颜色
-    colors = ['g', 'm']
-    for i, route in enumerate(routes):
-        route_coords_x = x_coords[route]
-        route_coords_y = y_coords[route]
-        plt.plot(route_coords_x, route_coords_y, c=colors[i], 
-                label=f'Vehicle {i+1}')
-    
-    plt.legend()
-    plt.title('VRP Solution')
-    plt.xlabel('X coordinate')
-    plt.ylabel('Y coordinate')
-    plt.grid(True)
-    plt.show()
+# Format results into a DataFrame sorted by route order
+summary_df = pd.DataFrame(summary_data)
+summary_df = summary_df.sort_values(by=["Vehicle", "Time O"])
+print(summary_df)
 
-def print_solution(routes, x_coords, y_coords, demands, distances):
-    print("\nSolution Details:")
-    print(f"Total number of vehicles used: {len(routes)}")
-    
-    for i, route in enumerate(routes):
-        print(f"\nVehicle {i+1} Route:")
-        print("Stop  Location(x,y)  Demand  Distance to next")
-        total_load = 0
-        route_distance = 0
-        
-        for j in range(len(route)-1):
-            current = route[j]
-            next_stop = route[j+1]
-            total_load += demands[current]
-            distance_to_next = distances[current][next_stop]
-            route_distance += distance_to_next
-            
-            print(f"{current:3d}  ({x_coords[current]:6.1f},{y_coords[current]:6.1f})  {demands[current]:6.1f}  {distance_to_next:8.1f}")
-        
-        print(f"Total distance for vehicle {i+1}: {route_distance:.2f}")
-        print(f"Total load for vehicle {i+1}: {total_load:.2f}")
+# Plot routes with directional arrows and labels, including all points
+plt.figure(figsize=(12, 10))
+colors = ['r', 'b', 'g', 'c', 'm', 'y', 'k']  # Color palette
 
-def main():
-    # 读取数据
-    x_coords, y_coords, demands = read_data("data_small.txt")
-    distances = calculate_distances(x_coords, y_coords)
-    
-    # 求解VRP
-    routes, total_distance = solve_vrp(x_coords, y_coords, demands)
-    
-    # 打印结果
-    print(f"\nTotal distance traveled: {total_distance:.2f}")
-    print_solution(routes, x_coords, y_coords, demands, distances)
-    
-    # 绘制解决方案
-    plot_solution(x_coords, y_coords, routes)
+# Draw all points as a base
+for i, coord in enumerate(coordinates):
+    plt.scatter(coord[0], coord[1], color='black', zorder=1)
+    plt.text(coord[0] + 1, coord[1] + 1, str(i), fontsize=12, color='black', zorder=2)
 
-if __name__ == "__main__":
-    main()
+# Draw the routes with arrows
+for v, route in routes.items():
+    color = colors[v % len(colors)]
+    for idx, (i, j) in enumerate(route):
+        # Draw directional arrow for the route
+        arrow = FancyArrowPatch((coordinates[i][0], coordinates[i][1]),
+                                (coordinates[j][0], coordinates[j][1]),
+                                color=color, arrowstyle='->', mutation_scale=12, zorder=3)
+        plt.gca().add_patch(arrow)
+    # Add legend entry for the vehicle
+    plt.plot([], [], color=color, label=f'Vehicle {v + 1}')
+
+# Add legend
+plt.legend(loc='best')
+
+# Set plot details
+plt.title("Routes for CVRP with Time Windows (All Points Visible)")
+plt.xlabel("X Coordinate")
+plt.ylabel("Y Coordinate")
+plt.grid(True)
+plt.show()
