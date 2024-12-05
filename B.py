@@ -15,75 +15,75 @@ data = pd.read_csv('data_small.txt', delim_whitespace=True, header=None,
 # Extract relevant information
 locations = data["LOC_ID"].values
 coordinates = data[["XCOORD", "YCOORD"]].values
-demand = data["DEMAND"].values
-service_time = data["SERVICETIME"].values
-ready_time = data["READYTIME"].values
-due_time = data["DUETIME"].values
+d = data["DEMAND"].values
+s = data["SERVICETIME"].values
+e = data["READYTIME"].values
+l = data["DUETIME"].values
 
 # Number of vehicles and vehicle capacity
-num_vehicles = 2
-capacity = 130
+V = 2
+b = 130
 
 # Calculate distance matrix (Euclidean distances)
 num_locations = len(locations)
-distance_matrix = np.zeros((num_locations, num_locations))
+c = np.zeros((num_locations, num_locations))
 for i in range(num_locations):
     for j in range(num_locations):
-        distance_matrix[i, j] = np.linalg.norm(coordinates[i] - coordinates[j])
+        c[i, j] = np.linalg.norm(coordinates[i] - coordinates[j])
 
 # Gurobi Model
 model = Model("CVRP-TW")
 
 # Decision variables
-x = model.addVars(num_locations, num_locations, num_vehicles, vtype=GRB.BINARY, name="x")
-y = model.addVars(num_locations, num_vehicles, vtype=GRB.BINARY, name="y")
-w = model.addVars(num_locations, num_vehicles, vtype=GRB.CONTINUOUS, name="w")
+x = model.addVars(num_locations, num_locations, V, vtype=GRB.BINARY, name="x")
+z = model.addVars(num_locations, V, vtype=GRB.BINARY, name="z")
+w = model.addVars(num_locations, V, vtype=GRB.CONTINUOUS, name="w")
 
 # Objective function: minimize total distance
-model.setObjective(quicksum(distance_matrix[i, j] * x[i, j, v]
+model.setObjective(quicksum(c[i, j] * x[i, j, v]
                             for i in range(num_locations)
                             for j in range(num_locations)
-                            for v in range(num_vehicles)), GRB.MINIMIZE)
+                            for v in range(V)), GRB.MINIMIZE)
 
 # Constraints
 # Each customer is visited exactly once
-model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(num_vehicles)) == 1
+model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(V)) == 1
                  for i in range(1, num_locations))
 
 # Flow conservation
 model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations)) ==
                  quicksum(x[j, i, v] for j in range(num_locations))
-                 for i in range(num_locations) for v in range(num_vehicles))
+                 for i in range(num_locations) for v in range(V))
 
 # Each vehicle starts and ends at the depot
-model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) == 1 for v in range(num_vehicles))
-model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) == 1 for v in range(num_vehicles))
+model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) == 1 for v in range(V))
+model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) == 1 for v in range(V))
 
 # Vehicle capacity constraint
 model.addConstrs(
-    quicksum(demand[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
-    <= capacity for v in range(num_vehicles))
+    quicksum(d[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
+    <= b for v in range(V))
 
 # Time window constraints
-model.addConstrs((w[i, v] >= ready_time[i] * y[i, v]) for i in range(num_locations) for v in range(num_vehicles))
-model.addConstrs((w[i, v] <= due_time[i] * y[i, v]) for i in range(num_locations) for v in range(num_vehicles))
+model.addConstrs((w[i, v] >= e[i] * z[i, v]) for i in range(num_locations) for v in range(V))
+model.addConstrs((w[i, v] <= l[i] * z[i, v]) for i in range(num_locations) for v in range(V))
 
 # Subtour elimination
 M = 1e5  # A sufficiently large number
-model.addConstrs((w[i, v] + service_time[i] + distance_matrix[i, j] - w[j, v]
+model.addConstrs((w[i, v] + s[i] + c[i, j] - w[j, v]
                   <= M * (1 - x[i, j, v]))
                  for i in range(num_locations)
                  for j in range(1, num_locations)
-                 for v in range(num_vehicles))
+                 for v in range(V))
 
 # Solve the model
 model.optimize()
 
 # Extract results
-routes = {v: [] for v in range(num_vehicles)}
+routes = {v: [] for v in range(V)}
 summary_data = []
 total_distance = model.objVal
-for v in range(num_vehicles):
+for v in range(V):
     current_node = 0  # Start from the depot
     load = 0  # Track vehicle load
     while True:
@@ -95,7 +95,7 @@ for v in range(num_vehicles):
 
                 # Calculate load at origin and destination
                 load_o = load
-                load += demand[next_node]
+                load += d[next_node]
                 load_d = load
 
                 # Add record to summary data
