@@ -8,6 +8,10 @@ from matplotlib.patches import FancyArrowPatch
 data = pd.read_csv('data_small.txt', delim_whitespace=True, header=None,
                    names=["LOC_ID", "XCOORD", "YCOORD", "DEMAND", "SERVICETIME", "READYTIME", "DUETIME"])
 
+# uncomment the following line to use the test dataset
+# data = pd.read_csv('data_small_test.txt', delim_whitespace=True, header=None,
+#                    names=["LOC_ID", "XCOORD", "YCOORD", "DEMAND", "SERVICETIME", "READYTIME", "DUETIME"])
+
 # Extract relevant information
 locations = data["LOC_ID"].values
 coordinates = data[["XCOORD", "YCOORD"]].values
