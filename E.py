@@ -48,8 +48,8 @@ def run_test_py_algorithm(V, b):
                      for i in range(num_locations) for v in range(V))
 
     # Each vehicle starts and ends at the depot
-    model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) == 1 for v in range(V))
-    model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) == 1 for v in range(V))
+    model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) <= 1 for v in range(V))
+    model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) <= 1 for v in range(V))
 
     # Vehicle capacity constraint
     model.addConstrs(
@@ -208,8 +208,8 @@ else:
                      for i in range(num_locations) for v in range(V))
 
     # Each vehicle starts and ends at the depot
-    model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) == 1 for v in range(V))
-    model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) == 1 for v in range(V))
+    model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) <= 1 for v in range(V))
+    model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) <= 1 for v in range(V))
 
     # Capacity constraints
     model.addConstrs(
