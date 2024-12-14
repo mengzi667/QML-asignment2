@@ -312,7 +312,7 @@ else:
 
         # Set legend and title
         plt.legend(loc='best')
-        plt.title("Routes for CVRP without Time Windows (All Points Visible)")
+        plt.title("Routes for CVRP with 3 Time Windows (All Points Visible)")
         plt.xlabel("X Coordinate")
         plt.ylabel("Y Coordinate")
         plt.grid(True)
