@@ -85,8 +85,12 @@ def run_test_py_algorithm(V, b):
             for j in range(num_locations):
                 if x[current_node, j, v].x > 0.5:
                     next_node = j
-                    start_time = w[current_node, v].x
-                    end_time = w[next_node, v].x
+                    start_time = w[current_node, v].x + s[current_node]
+                    # If next node is depot (0), calculate end time including travel time
+                    if next_node == 0:
+                        end_time = start_time + c[current_node, 0]
+                    else:
+                        end_time = w[next_node, v].x 
 
                     # Calculate load at origin and destination
                     load_o = load
@@ -155,11 +159,11 @@ def run_test_py_algorithm(V, b):
 
 # Manually input parameters
 V = int(input("Enter the number of vehicles: "))
-capacity = int(input("Enter the capacity limit for each vehicle: "))
+b = int(input("Enter the capacity limit for each vehicle: "))
 time_window_option = int(input("Enter the number of time windows (0: No time windows, 1: Single time window, 3: Multiple time windows): "))
 
 if time_window_option == 0:
-    run_test_py_algorithm(V, capacity)
+    run_test_py_algorithm(V, b)
 else:
     # Load data
     data = pd.read_csv('data_small_multiTW.txt', sep='\s+', header=None,
@@ -169,16 +173,16 @@ else:
     # Extract relevant information
     locations = data["LOC_ID"].values
     coordinates = data[["XCOORD", "YCOORD"]].values
-    demands = data["DEMAND"].values
-    service_times = data["SERVICETIME"].values
+    d = data["DEMAND"].values
+    s = data["SERVICETIME"].values
     time_windows = data.iloc[:, 6:].values
 
     # Calculate distance matrix
     num_locations = len(locations)
-    distance_matrix = np.zeros((num_locations, num_locations))
+    c = np.zeros((num_locations, num_locations))
     for i in range(num_locations):
         for j in range(num_locations):
-            distance_matrix[i, j] = np.linalg.norm(coordinates[i] - coordinates[j])
+            c[i, j] = np.linalg.norm(coordinates[i] - coordinates[j])
 
     # Gurobi Model
     model = Model("CVRP-Multi-TW")
@@ -193,7 +197,7 @@ else:
         z = model.addVars(num_locations, time_window_option, V, vtype=GRB.BINARY, name="z")
 
     # Objective function
-    model.setObjective(quicksum(distance_matrix[i, j] * x[i, j, v]
+    model.setObjective(quicksum(c[i, j] * x[i, j, v]
                                 for i in range(num_locations)
                                 for j in range(num_locations)
                                 for v in range(V)), GRB.MINIMIZE)
@@ -213,8 +217,8 @@ else:
 
     # Capacity constraints
     model.addConstrs(
-        quicksum(demands[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
-        <= capacity for v in range(V))
+        quicksum(d[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
+        <= b for v in range(V))
 
     # Add time window constraints only if there are time windows
     if time_window_option > 0:
@@ -238,7 +242,7 @@ else:
         for i in range(num_locations):
             for j in range(1, num_locations):
                 for v in range(V):
-                    model.addConstr(w[j, v] >= w[i, v] + service_times[i] + distance_matrix[i, j] - 1e5 * (1 - x[i, j, v]))
+                    model.addConstr(w[j, v] >= w[i, v] + s[i] + c[i, j] - 1e5 * (1 - x[i, j, v]))
 
     # Measure the start time
     start_time = time.time()
@@ -262,23 +266,24 @@ else:
             while True:
                 for j in range(num_locations):
                     if x[current_node, j, v].x > 0.5:
-                        start_time = w[current_node, v].x if w is not None else 0
-                        end_time = w[j, v].x if w is not None else 0
+                        # Calculate times
+                        time_o = w[current_node, v].x + s[current_node] if w is not None else 0
+                        time_d = w[j, v].x if w is not None and j != 0 else time_o + c[current_node, j]
 
                         # Record the route
                         summary_data.append({
                             "Vehicle": v + 1,
                             "Origin": current_node,
                             "Destination": j,
-                            "Time O": start_time,
-                            "Time D": end_time,
+                            "Time O": time_o,
+                            "Time D": time_d,
                             "Load O": load,
-                            "Load D": load + demands[j] if j != 0 else 0,
+                            "Load D": load + d[j] if j != 0 else 0,
                         })
 
                         # Update node and load
                         routes[v].append((current_node, j))
-                        load += demands[j]
+                        load += d[j]
                         current_node = j
                         break
                 if current_node == 0:

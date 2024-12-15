@@ -85,18 +85,20 @@ summary_data = []
 total_distance = model.objVal
 for v in range(V):
     current_node = 0  # Start from the depot
-    load = 0  # Track vehicle load
     while True:
         for j in range(num_locations):
             if x[current_node, j, v].x > 0.5:
                 next_node = j
-                start_time = w[current_node, v].x
-                end_time = w[next_node, v].x
+                start_time = w[current_node, v].x + s[current_node]
+                # If next node is depot (0), calculate end time including travel time
+                if next_node == 0:
+                    end_time = start_time + c[current_node, 0]
+                else:
+                    end_time = w[next_node, v].x 
 
                 # Calculate load at origin and destination
-                load_o = load
-                load += d[next_node]
-                load_d = load
+                load_o = sum(d[k] for k in range(num_locations) if z[k, v].x > 0.5 and w[k, v].x <= start_time)
+                load_d = sum(d[k] for k in range(num_locations) if z[k, v].x > 0.5 and w[k, v].x <= end_time)
 
                 # Add record to summary data
                 summary_data.append({
@@ -118,7 +120,6 @@ for v in range(V):
                     break
         if current_node == 0:
             break
-
 # Format results into a DataFrame sorted by route order
 summary_df = pd.DataFrame(summary_data)
 summary_df = summary_df.sort_values(by=["Vehicle", "Time O"])
