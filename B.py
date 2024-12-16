@@ -68,6 +68,9 @@ model.addConstrs(
 model.addConstrs((w[i, v] >= e[i] * z[i, v]) for i in range(num_locations) for v in range(V))
 model.addConstrs((w[i, v] <= l[i] * z[i, v]) for i in range(num_locations) for v in range(V))
 
+# Ensure vehicles return to depot within the time window
+model.addConstrs((w[0, v] <= l[0]) for v in range(V))
+
 # Subtour elimination
 M = 1e5  # A sufficiently large number
 model.addConstrs((w[i, v] + s[i] + c[i, j] - w[j, v]

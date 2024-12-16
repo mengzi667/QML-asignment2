@@ -30,7 +30,7 @@ def run_test_py_algorithm(V, b):
     x = model.addVars(num_locations, num_locations, V, vtype=GRB.BINARY, name="x")
     z = model.addVars(num_locations, V, vtype=GRB.BINARY, name="z")
     w = model.addVars(num_locations, V, vtype=GRB.CONTINUOUS, name="w")
-
+    y = model.addVars(num_locations, V, vtype=GRB.CONTINUOUS, name="y")  # Quantity picked up
     # Objective function: minimize total distance
     model.setObjective(quicksum(c[i, j] * x[i, j, v]
                                 for i in range(num_locations)
@@ -38,8 +38,11 @@ def run_test_py_algorithm(V, b):
                                 for v in range(V)), GRB.MINIMIZE)
 
     # Constraints
-    # Each customer is visited exactly once
-    model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(V)) == 1
+    # split pickup constrain
+    model.addConstrs(quicksum(y[i, v] for v in range(V)) == d[i] for i in range(num_locations))
+    model.addConstrs(y[i, v] <=d[i] *quicksum(x[i, j, v] for j in range(num_locations))for i in range(1,num_locations) for v in range(V))
+    # Each customer is visited at least once
+    model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(V)) >= 1
                      for i in range(1, num_locations))
 
     # Flow conservation
@@ -51,13 +54,8 @@ def run_test_py_algorithm(V, b):
     model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) <= 1 for v in range(V))
     model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) <= 1 for v in range(V))
 
-    # Ensure vehicles return to depot within the time window
-    model.addConstrs((w[0, v] <= l[0]) for v in range(V))
-
     # Vehicle capacity constraint
-    model.addConstrs(
-        quicksum(d[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
-        <= b for v in range(V))
+    model.addConstrs(quicksum(y[i, v] for i in range(num_locations))<= b for v in range(V))
 
     # Subtour elimination
     M = 1e5  # A sufficiently large number
@@ -192,7 +190,7 @@ else:
 
     # Decision variables
     x = model.addVars(num_locations, num_locations, V, vtype=GRB.BINARY, name="x")
-
+    y = model.addVars(num_locations, V, vtype=GRB.CONTINUOUS, name="y")  # Quantity picked up
     # Create time-related variables only if there are time windows
     w, z = None, None
     if time_window_option > 0:
@@ -206,7 +204,7 @@ else:
                                 for v in range(V)), GRB.MINIMIZE)
 
     # Node visit constraints
-    model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(V)) == 1
+    model.addConstrs(quicksum(x[i, j, v] for j in range(num_locations) for v in range(V)) >= 1
                      for i in range(1, num_locations))
 
     # Flow conservation constraints
@@ -217,23 +215,32 @@ else:
     # Each vehicle starts and ends at the depot
     model.addConstrs(quicksum(x[0, j, v] for j in range(1, num_locations)) <= 1 for v in range(V))
     model.addConstrs(quicksum(x[i, 0, v] for i in range(1, num_locations)) <= 1 for v in range(V))
-
-    # Capacity constraints
-    model.addConstrs(
-        quicksum(d[i] * quicksum(x[i, j, v] for j in range(num_locations)) for i in range(1, num_locations))
-        <= b for v in range(V))
+    # split pickup constrain
+    model.addConstrs(quicksum(y[i, v] for v in range(V)) ==d[i] for i in range(num_locations))
+    model.addConstrs(y[i, v] <=d[i] *quicksum(x[i, j, v] for j in range(num_locations))for i in range(1,num_locations) for v in range(V))
+   # Capacity constraints
+    model.addConstrs(quicksum(y[i, v] for i in range(num_locations))<= b for v in range(V))
 
     # Add time window constraints only if there are time windows
     if time_window_option > 0:
         # Time window selection constraints
         for i in range(1, num_locations):
-            model.addConstr(quicksum(z[i, tw, v] for tw in range(time_window_option) for v in range(V)) == 1)
+            model.addConstr(quicksum(z[i, tw, v] for tw in range(time_window_option) for v in range(V)) >= 1)
             for v in range(V):
                 for tw in range(time_window_option):
                     tw_start = time_windows[i, tw * 2]
                     tw_end = time_windows[i, tw * 2 + 1]
                     model.addConstr(w[i, v] >= tw_start - (1 - z[i, tw, v]) * 1e5)
                     model.addConstr(w[i, v] <= tw_end + (1 - z[i, tw, v]) * 1e5)
+
+    # Add time window constraints for the endpoint (assuming endpoint is 0)
+        model.addConstr(quicksum(z[0, tw, v] for tw in range(time_window_option) for v in range(V)) >= 1)
+        for v in range(V):
+            for tw in range(time_window_option):
+                tw_start = time_windows[0, tw * 2]
+                tw_end = time_windows[0, tw * 2 + 1]
+                model.addConstr(w[0, v] >= tw_start - (1 - z[0, tw, v]) * 1e5)
+                model.addConstr(w[0, v] <= tw_end + (1 - z[0, tw, v]) * 1e5)
 
         # Bind paths to time windows
         for i in range(1, num_locations):
