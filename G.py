@@ -233,14 +233,14 @@ else:
                     model.addConstr(w[i, v] >= tw_start - (1 - z[i, tw, v]) * 1e5)
                     model.addConstr(w[i, v] <= tw_end + (1 - z[i, tw, v]) * 1e5)
 
-    # Add time window constraints for the endpoint (assuming endpoint is 0)
-        model.addConstr(quicksum(z[0, tw, v] for tw in range(time_window_option) for v in range(V)) >= 1)
-        for v in range(V):
-            for tw in range(time_window_option):
-                tw_start = time_windows[0, tw * 2]
-                tw_end = time_windows[0, tw * 2 + 1]
-                model.addConstr(w[0, v] >= tw_start - (1 - z[0, tw, v]) * 1e5)
-                model.addConstr(w[0, v] <= tw_end + (1 - z[0, tw, v]) * 1e5)
+# Add time window constraints for the endpoint (assuming endpoint is 0)
+    model.addConstr(quicksum(z[0, tw, v] for tw in range(time_window_option) for v in range(V)) >= 1)
+    for v in range(V):
+        for tw in range(time_window_option):
+            tw_start = time_windows[0, tw * 2]
+            tw_end = time_windows[0, tw * 2 + 1]
+            model.addConstr(w[0, v] >= tw_start - (1 - z[0, tw, v]) * 1e5)
+            model.addConstr(w[0, v] <= tw_end + (1 - z[0, tw, v]) * 1e5)
 
         # Bind paths to time windows
         for i in range(1, num_locations):
